@@ -52,6 +52,7 @@ class ExecutorLoop:
     def _finish(self, status, reason):
         report = {
             'protocol': 'dual-loop-v1', 'task_id': self.brief.task_id,
+            'experiment_condition': getattr(self.backend, 'experiment_condition', 'dual-loop-v1'),
             'revision': self.brief.revision, 'goal': self.brief.goal,
             'status': status, 'reason': reason, 'decisions': self.decisions,
             'action_calls': self.actions, 'elapsed_seconds': self.clock() - self.started,
@@ -121,8 +122,11 @@ class ExecutorLoop:
                          'recent_effects': self.events[-4:]}
                 self.decisions += 1
                 try:
-                    decision = self.policy.select(
-                        self.state_transform(state) if self.state_transform else state, options)
+                    policy_state = self.state_transform(state) if self.state_transform else state
+                    if getattr(self.backend, 'proprioception', None):
+                        policy_state = {**policy_state,
+                                        'proprioception': snapshot['context']['proprioception']}
+                    decision = self.policy.select(policy_state, options)
                     decision.validate(options)
                 except Exception as error:
                     self._record({'kind': 'selector_error', 'error_type': type(error).__name__})

@@ -215,8 +215,12 @@ class Session:
             # get_instruction(), never a cached Playground object description.
             from dataclasses import replace
             brief = replace(brief, goal=self.env.task_prompt())
+        profile = request.get('observation_profile', 'baseline')
+        if profile not in ('baseline', 'proprioception-v1'):
+            raise ValueError('Unknown observation profile')
         backend = ProgramBackend(self.env, brief, gripper_feedback=(
-            self.controller_key is not None or self.development_export_task is not None))
+            self.controller_key is not None or self.development_export_task is not None),
+            proprioception=profile == 'proprioception-v1')
         selector = make_policy(request.get('selector', {'kind': 'advance'}))
         code = '\n\n'.join(item['code'] for item in brief.sources)
         self.env.validate_action(code)

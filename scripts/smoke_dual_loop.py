@@ -80,6 +80,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-dir', type=Path, required=True)
     parser.add_argument('--stuck', action='store_true')
+    parser.add_argument('--proprioception', action='store_true')
     args = parser.parse_args(argv)
     try:
         datetime.strptime(args.run_dir.name[:12], '%Y%m%d%H%M')
@@ -91,10 +92,12 @@ def main(argv=None):
                           'detection': {'ok': True, 'center': [-.274, -.063, .815], 'radius': .059},
                           'max_actions': 150,
                       }, max_action_calls=150, max_decisions=160)
-    loop = ExecutorLoop(brief, ProgramBackend(env, brief), DemoPolicy(), args.run_dir)
+    loop = ExecutorLoop(brief, ProgramBackend(env, brief, proprioception=args.proprioception),
+                        DemoPolicy(), args.run_dir)
     report = loop.run()
     print(json.dumps({
         'status': report['status'], 'reason': report['reason'],
+        'experiment_condition': report['experiment_condition'],
         'decisions': report['decisions'], 'action_calls': report['action_calls'],
         'model_called': False, 'robot_physics': False, 'grasp_verified': False,
         'report': str((args.run_dir / 'report.json').resolve()),

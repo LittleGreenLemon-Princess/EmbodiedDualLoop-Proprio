@@ -1,5 +1,10 @@
 # EmbodiedDualLoop
 
+This derivative adds opt-in public proprioceptive feedback and a versioned,
+hash-locked skill library inspired by ASPIRE. See
+[本体反馈与技能库融合](docs/PROPRIOCEPTION.zh-CN.md) for design, provenance and usage.
+The new experiment condition is `dual-loop-proprio-v1`; baseline inputs are unchanged by default.
+
 EmbodiedEvo reproduction plus an experimental second runtime for execution decisions.
 
 System 2 plans the workflow, writes parameterized skills, and repairs failures. It delegates

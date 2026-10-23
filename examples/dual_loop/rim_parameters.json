@@ -1,0 +1,14 @@
+{
+  "detection": {
+    "ok": false,
+    "center": [],
+    "radius": 0
+  },
+  "arm": "left",
+  "pitch_deg": 80,
+  "lift_m": 0.05,
+  "max_actions": 100,
+  "max_decisions": 120,
+  "max_adjustments": 12,
+  "stall_limit": 12
+}

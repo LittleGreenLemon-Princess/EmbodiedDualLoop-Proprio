@@ -1,0 +1,84 @@
+{
+  "schema": "dual-loop-skill-library-v1",
+  "skills": [
+    {
+      "id": "thin-rim-pick",
+      "version": "1.0.0",
+      "status": "supplied",
+      "embodiments": [
+        "robodojo-arx-x5"
+      ],
+      "capabilities": [
+        "rim-grasp",
+        "incremental-motion"
+      ],
+      "required_signals": [
+        "left_ee_pose",
+        "left_ee_joint_state",
+        "right_ee_pose",
+        "right_ee_joint_state"
+      ],
+      "preconditions": [
+        "Fresh public RGB-D rim detection",
+        "Empty open active gripper",
+        "Clear approach path",
+        "ARX X5 thin white bowl geometry"
+      ],
+      "verification": "Native task success or independent object evidence; pose/jaws alone insufficient",
+      "provenance": "Existing EmbodiedDualLoop supplied helpers; not newly learned or robot-validated",
+      "sources": [
+        {
+          "path": "integrations/ee_pose_servo.py",
+          "sha256": "0050baf38ac955325dbe29795288b22b1310e619e7d6ae4b6fbc45226a2c4b0d"
+        },
+        {
+          "path": "integrations/bowl_rim_grasp.py",
+          "sha256": "33ba043840b7491a168b8b8f74153d21df15f0de1b9dc7e83bf811c81958c014"
+        },
+        {
+          "path": "integrations/rim_pick_loop.py",
+          "sha256": "09bc6ddca655be4d6925d100ce932c68edbc8518a0e75f3ff33e0a1394fa6b21"
+        },
+        {
+          "path": "integrations/skills/thin_rim_grasp/stepwise_pick.py",
+          "sha256": "a3b907e044d9c08abec142a00b1fc48e13a7c0d6ab4790fb2b3b7d5d04554c6e"
+        }
+      ]
+    },
+    {
+      "id": "ee-offset-correction",
+      "version": "1.0.0",
+      "status": "supplied",
+      "embodiments": [
+        "robodojo-arx-x5"
+      ],
+      "capabilities": [
+        "hover-correction",
+        "incremental-motion"
+      ],
+      "required_signals": [
+        "left_ee_pose",
+        "left_ee_joint_state",
+        "right_ee_pose",
+        "right_ee_joint_state"
+      ],
+      "preconditions": [
+        "Public measured target pose",
+        "Clear free-space hover path",
+        "Left arm only; preserve other arm and grippers"
+      ],
+      "verification": "EE translation tolerance only; no object manipulation claim",
+      "provenance": "Existing EmbodiedDualLoop supplied diagnostic helper",
+      "sources": [
+        {
+          "path": "integrations/ee_pose_servo.py",
+          "sha256": "0050baf38ac955325dbe29795288b22b1310e619e7d6ae4b6fbc45226a2c4b0d"
+        },
+        {
+          "path": "integrations/skills/ee_offset_correction.py",
+          "sha256": "98befc55f955419fcaf8f833c37b8a9845dc170454feb17ca72e10edaede4f40"
+        }
+      ]
+    }
+  ]
+}

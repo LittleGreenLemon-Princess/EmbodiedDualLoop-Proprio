@@ -68,6 +68,8 @@ def main(argv=None):
     delegate = sub.add_parser('delegate', help='hand one parameterized subtask to System 1')
     delegate.add_argument('file', help='task JSON under submission/ or skills/')
     delegate.add_argument('--selector', choices=['advance', 'jev', 'jev_factorized'], default='advance')
+    delegate.add_argument('--observation-profile', choices=['baseline', 'proprioception-v1'],
+                          default='baseline')
     delegate.add_argument('--model', default='jev-1.13.0')
     delegate.add_argument('--timeout', type=float, default=8., help='seconds per Jev request')
     args = parser.parse_args(argv)
@@ -88,11 +90,19 @@ def main(argv=None):
             task = json.loads(path.read_text())
             if not isinstance(task, dict):
                 raise ValueError('Task JSON must be an object')
-            entry = task.pop('entry')
-            includes = task.pop('includes', [])
-            task['sources'] = source_snapshot(workspace, entry, includes)
+            if 'sources' in task:
+                if 'entry' in task or 'includes' in task:
+                    raise ValueError('Use embedded sources or entry/includes, not both')
+                if not isinstance(task['sources'], list) or not task['sources']:
+                    raise ValueError('Embedded sources must be a nonempty list')
+                # Host TaskBrief validates code and entry points; no host file reads.
+            else:
+                entry = task.pop('entry')
+                includes = task.pop('includes', [])
+                task['sources'] = source_snapshot(workspace, entry, includes)
             payload['task'] = task
             payload['selector'] = {'kind': args.selector, 'model': args.model, 'timeout': args.timeout}
+            payload['observation_profile'] = args.observation_profile
         result = request(payload)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("ok", False) else 1
