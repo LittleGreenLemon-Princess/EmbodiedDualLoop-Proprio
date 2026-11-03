@@ -42,10 +42,13 @@ def load_program(workspace, native_task):
     task['sources'] = [{'path': n, 'code': read(n, '.py')} for n in names]
     brief = TaskBrief.from_request(task)
     selector = dict(raw.get('selector', {'kind': 'jev', 'timeout': 8.}))
-    if selector.get('kind') not in ('jev', 'jev_factorized'):
-        raise ValueError('Frozen execution requires Jev, not a scripted selector')
+    if selector.get('kind') not in ('jev', 'jev_factorized', 'openrouter'):
+        raise ValueError('Frozen execution requires a model-backed System 1 selector')
     from orchestrator.dual_loop.policies import make_policy
     make_policy(selector)  # Validate settings; does not call the provider.
+    observation_profile = raw.get('observation_profile', 'baseline')
+    if observation_profile not in ('baseline', 'proprioception-v1'):
+        raise ValueError('Unknown frozen observation profile')
     if brief.min_confidence < .5:
         raise ValueError('Frozen execution requires min_confidence >= .5')
     interventions = raw.get('max_system2_interventions', 2)
@@ -55,6 +58,7 @@ def load_program(workspace, native_task):
         {'path': n, 'sha256': hashlib.sha256(s['code'].encode()).hexdigest()}
         for n, s in zip(names, brief.sources)]}
     return {'brief': brief, 'selector': selector, 'max_interventions': interventions,
+            'observation_profile': observation_profile,
             'sha256': digest(identity), 'identity': identity}
 
 
@@ -77,6 +81,17 @@ def validate_development_export(workspace, native_task):
             # Validation establishes execution/provenance, not task success.
             if report.get('reason') in ('program_error', 'runtime_error'):
                 continue
+            context_seal = {}
+            if program['selector']['kind'] == 'openrouter':
+                context_path = path.parent.parent / 'system1-context.json'
+                if (report.get('reason') == 'selector_error' or report.get('action_calls', 0) < 1
+                        or not context_path.is_file()):
+                    continue
+                context = json.loads(context_path.read_text(encoding='utf-8'))
+                if context != {'selector': program['selector'],
+                               'observation_profile': program['observation_profile']}:
+                    continue
+                context_seal['development_context_sha256'] = hashlib.sha256(context_path.read_bytes()).hexdigest()
             return {k: v for k, v in {
                 'schema': 'frozen-task-seal-v1', 'native_task': native_task,
                 'program_sha256': program['sha256'], 'manifest': MANIFEST,
@@ -84,6 +99,7 @@ def validate_development_export(workspace, native_task):
                 'development_status': report.get('status'),
                 'development_reason': report.get('reason'),
                 'subtask_verified': report.get('subtask_verified', False),
+                **context_seal,
             }.items()}
     raise ValueError('Exported full program was not executed with the same code and parameters '
                      'during Playground; preserve the run and do not start Test')

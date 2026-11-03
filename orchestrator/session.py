@@ -79,7 +79,7 @@ class Session:
     def __init__(
         self, env, run, *, phase, seed, budget, seconds, execution_seconds, fps=15, event=None,
         require_delegate=False, canonical_pose_context=False, controller_key=None,
-        development_export_task=None
+        development_export_task=None, selector_condition=None
     ):
         self.env, self.run = env, Path(run)
         self.workspace = self.run / "workspace"
@@ -88,6 +88,7 @@ class Session:
         self.canonical_pose_context = canonical_pose_context
         self.controller_key = controller_key
         self.development_export_task = development_export_task
+        self.selector_condition = selector_condition
         self.seconds, self.execution_seconds = seconds, execution_seconds
         self.fps, self.event = fps, event or (lambda value: None)
         self.used = 0
@@ -206,8 +207,13 @@ class Session:
         from orchestrator.dual_loop.evidence import write_spooled_videos
         from orchestrator.dual_loop.policies import make_policy
 
-        if self.require_delegate and request.get('selector', {}).get('kind') not in ('jev', 'jev_factorized'):
-            raise ValueError('Dual-loop pilot requires a Jev selector for movement')
+        if self.require_delegate and request.get('selector', {}).get('kind') not in (
+                'jev', 'jev_factorized', 'openrouter'):
+            raise ValueError('Dual-loop execution requires a Jev or OpenRouter System 1 selector')
+        if self.selector_condition is not None and any(
+                request.get('selector', {}).get(key) != value
+                for key, value in self.selector_condition.items()):
+            raise ValueError('Delegation selector must match the configured provider/model/effort')
         brief = TaskBrief.from_request(request.get('task'))
         if self.controller_key is not None:
             # A native task's object/language goal can vary across scenes. The
@@ -239,6 +245,7 @@ class Session:
         remaining = self.status()['seconds_remaining']
         timeout = self.execution_seconds if remaining is None else min(
             self.execution_seconds, remaining)
+        selector.deadline = time.monotonic() + timeout
         state_transform = None
         if self.canonical_pose_context and 'target_pose' in brief.parameters:
             from orchestrator.dual_loop.pose_state import MeasuredPoseState
@@ -246,6 +253,9 @@ class Session:
             selector.canonical_pose_menu = True
         loop = ExecutorLoop(brief, backend, selector, folder / 'system1',
                             state_transform=state_transform)
+        if request.get('selector', {}).get('kind') == 'openrouter':
+            write_json(folder / 'system1-context.json', {
+                'selector': request['selector'], 'observation_profile': profile})
         self.event({'event': 'executing', 'runtime': 'system1', 'timeout': timeout})
         try:
             started = time.monotonic()
@@ -462,6 +472,9 @@ def serve(cfg, run, socket_path, *, phase, seed, budget, seconds, execution_seco
                             if controller_key_file else None),
             development_export_task=(cfg.simulator.env_task if phase == 'playground'
                                      and cfg.execution_profile == 'dual_loop_frozen_task' else None),
+            selector_condition=({'kind': 'openrouter', 'model': cfg.agent.model,
+                                 'effort': cfg.agent.reasoning_effort}
+                                if cfg.agent.preset == 'openrouter' else None),
         )
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
             listener.bind(str(socket_path))

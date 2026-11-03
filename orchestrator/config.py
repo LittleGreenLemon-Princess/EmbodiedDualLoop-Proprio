@@ -42,7 +42,7 @@ class Simulator:
 
 @dataclass(frozen=True)
 class Agent:
-    preset: str  # codex | claude
+    preset: str  # codex | claude | openrouter
     model: str
     reasoning_effort: str
     # ``None`` means that the Playground agent session has no wall-clock limit.

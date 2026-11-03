@@ -67,11 +67,12 @@ def main(argv=None):
         sub.add_parser(command)
     delegate = sub.add_parser('delegate', help='hand one parameterized subtask to System 1')
     delegate.add_argument('file', help='task JSON under submission/ or skills/')
-    delegate.add_argument('--selector', choices=['advance', 'jev', 'jev_factorized'], default='advance')
+    delegate.add_argument('--selector', choices=['advance', 'jev', 'jev_factorized', 'openrouter'], default='advance')
     delegate.add_argument('--observation-profile', choices=['baseline', 'proprioception-v1'],
                           default='baseline')
-    delegate.add_argument('--model', default='jev-1.13.0')
-    delegate.add_argument('--timeout', type=float, default=8., help='seconds per Jev request')
+    delegate.add_argument('--model')
+    delegate.add_argument('--effort', choices=['low', 'medium', 'high', 'xhigh'], default='high')
+    delegate.add_argument('--timeout', type=float, help='seconds per System 1 request; default 8 for Jev, 120 for OpenRouter')
     args = parser.parse_args(argv)
     payload = {"op": args.command}
     try:
@@ -101,7 +102,13 @@ def main(argv=None):
                 includes = task.pop('includes', [])
                 task['sources'] = source_snapshot(workspace, entry, includes)
             payload['task'] = task
-            payload['selector'] = {'kind': args.selector, 'model': args.model, 'timeout': args.timeout}
+            openrouter = args.selector == 'openrouter'
+            payload['selector'] = {
+                'kind': args.selector,
+                'model': args.model or ('deepseek/deepseek-v4.1-flash' if openrouter else 'jev-1.13.0'),
+                'timeout': args.timeout if args.timeout is not None else (120. if openrouter else 8.)}
+            if openrouter:
+                payload['selector']['effort'] = args.effort
             payload['observation_profile'] = args.observation_profile
         result = request(payload)
         print(json.dumps(result, ensure_ascii=False, indent=2))

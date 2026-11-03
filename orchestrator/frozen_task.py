@@ -87,7 +87,9 @@ def drive(workspace, native_task, expected_sha256, call, repair, output, *, cont
     knowledge = {part: knowledge_hashes(workspace / part) for part in ['skills', 'lessons']}
     base = current = program['brief']
     selector = program['selector']
-    summary = {'condition': 'fixed-base-with-local-system2-repair-v1',
+    summary = {'condition': 'openrouter-only-dual-loop-adaptation-v1'
+               if program['selector'].get('kind') == 'openrouter'
+               else 'fixed-base-with-local-system2-repair-v1',
                'initial_program_sha256': expected_sha256, 'native_task': native_task,
                'system2_interventions': 0, 'delegations': 0, 'native_success': False,
                'primary_success': False, 'repairs': [], 'repair_agent_seconds': 0.}
@@ -108,7 +110,8 @@ def drive(workspace, native_task, expected_sha256, call, repair, output, *, cont
 
     while True:
         unchanged()
-        payload = {'op': 'delegate', 'task': asdict(current), 'selector': selector}
+        payload = {'op': 'delegate', 'task': asdict(current), 'selector': selector,
+                   'observation_profile': program['observation_profile']}
         log('dispatch', revision=current.revision, program_sha256=digest(payload))
         response = rpc(payload)
         summary['delegations'] += 1
@@ -219,15 +222,33 @@ def main():
     def repair(path, handoff):
         index = handoff['intervention']
         logs = args.episode / 'repairs' / f'{index:04d}' / 'agent'
-        command = [sys.executable, '-m', 'orchestrator.local_agent',
-                   '--episode', str(args.episode), '--socket', str(args.socket),
-                   '--home', str(args.home / f'repair_{index:04d}'),
-                   '--log-dir', str(logs), '--model', cfg.agent.model,
-                   '--phase', 'test', '--effort', cfg.agent.reasoning_effort,
-                   '--role', 'repair', '--handoff', str(path.relative_to(workspace))]
+        if cfg.agent.preset == 'openrouter':
+            from orchestrator.openrouter_agent_host import start_shell_container, stop_shell_container
+            container, shell_socket = start_shell_container(
+                workspace, args.socket, image=cfg.agent.image, cpus=cfg.agent.cpus,
+                memory_mb=cfg.agent.memory_mb, phase='test')
+            command = [sys.executable, '-m', 'orchestrator.openrouter_agent_host',
+                       '--episode', str(args.episode), '--socket', str(args.socket),
+                       '--log-dir', str(logs), '--model', cfg.agent.model,
+                       '--effort', cfg.agent.reasoning_effort, '--phase', 'test',
+                       '--role', 'repair', '--handoff', str(path.relative_to(workspace)),
+                       '--container', container, '--container-socket', shell_socket,
+                       '--image', cfg.agent.image]
+        else:
+            container = None
+            command = [sys.executable, '-m', 'orchestrator.local_agent',
+                       '--episode', str(args.episode), '--socket', str(args.socket),
+                       '--home', str(args.home / f'repair_{index:04d}'),
+                       '--log-dir', str(logs), '--model', cfg.agent.model,
+                       '--phase', 'test', '--effort', cfg.agent.reasoning_effort,
+                       '--role', 'repair', '--handoff', str(path.relative_to(workspace))]
         # Inherit the controller's process group: supervisor cleanup kills the
         # repair CLI and its children too. The overall scene watchdog still applies.
-        rc = subprocess.run(command, check=False).returncode
+        try:
+            rc = subprocess.run(command, check=False).returncode
+        finally:
+            if container:
+                stop_shell_container(container)
         proposal = workspace / handoff['proposal_path']
         return proposal if rc == 0 and proposal.is_file() else None
 

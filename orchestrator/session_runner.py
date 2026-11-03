@@ -42,9 +42,14 @@ def validate(cfg):
         raise ValueError("Workspace sessions require Docker isolation")
     if cfg.agent.isolation == "local" and cfg.agent.preset != "claude":
         raise ValueError("Non-isolated local pilot currently supports only Claude")
-    if cfg.execution_profile == 'dual_loop_frozen_task' and cfg.agent.isolation != 'local':
-        raise ValueError('Fixed-task repair currently uses the configured local Claude CLI; '
-                         'do not silently downgrade a Docker experiment')
+    if cfg.agent.preset == 'openrouter' and cfg.agent.isolation != 'docker':
+        raise ValueError('OpenRouter agent shells require the isolated Docker workspace')
+    if cfg.agent.preset == 'openrouter' and cfg.agent.network != 'none':
+        raise ValueError('OpenRouter API runs on the host; the workspace container must be offline')
+    if (cfg.execution_profile == 'dual_loop_frozen_task'
+            and cfg.agent.preset != 'openrouter' and cfg.agent.isolation != 'local'):
+        raise ValueError('This frozen-task adapter supports the explicit OpenRouter host API '
+                         'or the configured local Claude pilot')
     if cfg.baseline != (cfg.playground is None):
         raise ValueError("Only baseline tasks may omit Playground")
     if not cfg.expose_success_feedback:
@@ -103,7 +108,8 @@ def prepare_inputs(cfg, run):
         from orchestrator.dual_loop.staging import stage_workspace
         stage_workspace(inputs, benchmark=cfg.execution_profile == 'dual_loop_benchmark',
                         frozen_task=cfg.execution_profile == 'dual_loop_frozen_task',
-                        native_task=cfg.simulator.env_task)
+                        native_task=cfg.simulator.env_task,
+                        selector_provider=cfg.agent.preset)
     if cfg.simulator.observation_mode == "rgbd":
         from simulators.rgbd import MANUAL
 
@@ -192,6 +198,20 @@ def agent_command(cfg, run, socket_dir, phase):
             "--model", cfg.agent.model, "--phase", phase,
             "--effort", cfg.agent.reasoning_effort,
         ]
+    if cfg.agent.preset == 'openrouter':
+        from orchestrator.openrouter_agent_host import start_shell_container
+        container, shell_socket = start_shell_container(
+            run / 'workspace', socket_dir / 'session.sock', image=cfg.agent.image,
+            cpus=cfg.agent.cpus, memory_mb=cfg.agent.memory_mb, phase=phase)
+        import sys
+        return container, [
+            sys.executable, '-m', 'orchestrator.openrouter_agent_host',
+            '--episode', str(run), '--socket', str(socket_dir / 'session.sock'),
+            '--log-dir', str(run / 'agent'), '--model', cfg.agent.model,
+            '--effort', cfg.agent.reasoning_effort, '--phase', phase,
+            '--role', 'solve', '--container', container,
+            '--container-socket', shell_socket, '--image', cfg.agent.image,
+        ]
     launch_agent.require_image(cfg.agent.image)
     if cfg.agent.network != "none":
         launch_agent.ensure_network()
@@ -260,6 +280,14 @@ def stop_process(process):
         process.wait(timeout=5)
 
 
+def validate_frozen_selector(cfg, program):
+    if cfg.agent.preset == 'openrouter':
+        expected = {'kind': 'openrouter', 'model': cfg.agent.model,
+                    'effort': cfg.agent.reasoning_effort}
+        if any(program['selector'].get(key) != value for key, value in expected.items()):
+            raise ValueError('OpenRouter frozen selector must match the configured provider/model/effort')
+
+
 def run_episode(
     cfg,
     run,
@@ -284,6 +312,9 @@ def run_episode(
         raise ValueError("External Test requires the XPolicyLab adapter runtime; no direct simulator fallback")
     if cfg.simulator.backend == "robodojo" and profile_path:
         if profile.get("sif"):
+            if cfg.agent.preset == 'openrouter':
+                raise ValueError('OpenRouter host API currently requires the direct Linux runner; '
+                                 'the XPolicyLab/SIF adapter is not part of this provider integration')
             from integrations.robodojo_policy.execution import run_episode as official_episode
 
             return official_episode(cfg, run, experiment, phase=phase, seed=seed, seconds=seconds,
@@ -300,9 +331,10 @@ def run_episode(
     if fixed_task:
         from orchestrator.frozen_program import load_program
         seal = json.loads((experiment / 'frozen-task.json').read_text())
+        program = load_program(run / 'workspace', cfg.simulator.env_task)
+        validate_frozen_selector(cfg, program)
         if (seal['native_task'] != cfg.simulator.env_task or
-                load_program(run / 'workspace', cfg.simulator.env_task)['sha256']
-                != seal['program_sha256']):
+                program['sha256'] != seal['program_sha256']):
             raise ValueError('Fixed-task scene differs from its development seal')
         write_json(run / 'frozen-task-seal.json', seal)
     budget = cfg.playground.budget if phase == "playground" else cfg.test.budget
@@ -427,7 +459,12 @@ def run_episode(
         if fixed_task:
             command += ['--controller-key-file', str(socket_dir / 'controller-key')]
         try:
-            container, argv = agent_command(cfg, run, socket_dir, phase)
+            # The host-API shell mounts one existing session socket, not its parent.
+            # The direct Linux simulator creates it only when its ready event arrives.
+            if cfg.agent.preset == 'openrouter' and not fixed_task:
+                argv = None
+            else:
+                container, argv = agent_command(cfg, run, socket_dir, phase)
             simulator = subprocess.Popen(
                 command,
                 cwd=CODE_ROOT,
@@ -457,9 +494,14 @@ def run_episode(
                             simulator_ready_wall = time.time()
                             simulator_ready_mono = time.monotonic()
                             agent_deadline = None if seconds is None else time.monotonic() + seconds
+                            if argv is None:
+                                container, argv = agent_command(cfg, run, socket_dir, phase)
+                            from orchestrator.openrouter_transport import deadline_environment
                             agent = subprocess.Popen(
                                 argv,
                                 cwd=REPO,
+                                env=(deadline_environment(agent_deadline)
+                                     if cfg.agent.preset == 'openrouter' else None),
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL,
                                 start_new_session=True,
@@ -599,7 +641,10 @@ def run_episode(
             if write_fd is not None:
                 os.close(write_fd)
             mirror_agent_session()
-            token_usage = codex_token_usage(agent_home)
+            token_usage = (json.loads((run / 'agent/usage.json').read_text())
+                           if cfg.agent.preset == 'openrouter'
+                           and (run / 'agent/usage.json').exists()
+                           else codex_token_usage(agent_home))
             if cfg.agent.isolation == "local":
                 usage_path = run / "agent/usage.json"
                 token_usage = (json.loads(usage_path.read_text()) if usage_path.exists()
@@ -752,7 +797,8 @@ def explore(cfg, run_dir, *, gpu=None, timeout_sec=None):
             write_json(run / "protocol.json", state)
             return 1
         if cfg.execution_profile == 'dual_loop_frozen_task':
-            from orchestrator.frozen_program import validate_development_export
+            from orchestrator.frozen_program import load_program, validate_development_export
+            validate_frozen_selector(cfg, load_program(run / 'playground/workspace', cfg.simulator.env_task))
             seal = validate_development_export(run / 'playground/workspace', cfg.simulator.env_task)
             write_json(run / 'frozen-task.json', seal)
             state['frozen_task'] = seal
@@ -844,8 +890,10 @@ def prepare_test(cfg, run, *, create_plan=True, settings=None, seed_plan=None, f
     if cfg.execution_profile == 'dual_loop_frozen_task':
         from orchestrator.frozen_program import load_program
         seal = json.loads((run / 'frozen-task.json').read_text())
+        program = load_program(frozen, cfg.simulator.env_task)
+        validate_frozen_selector(cfg, program)
         if (seal != state.get('frozen_task') or
-                load_program(frozen, cfg.simulator.env_task)['sha256'] != seal['program_sha256']):
+                program['sha256'] != seal['program_sha256']):
             raise ValueError('Frozen full-task program or development seal changed')
     if frozen_source is not None:
         # Existing paired plans only: never call the sampling path, even

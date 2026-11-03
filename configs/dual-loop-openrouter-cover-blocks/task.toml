@@ -1,0 +1,44 @@
+[task]
+protocol = "workspace-session-v1"
+name = "embodieddualloop/cover-blocks-openrouter-dual-loop"
+description = "Opt-in OpenRouter-only dual-loop adaptation: develop and execute a complete Cover Blocks program in Playground, freeze its own skills/lessons, then run fresh Test sessions. This is not a native Jev reproduction. Layout-content independence requires a separate audit."
+execution_profile = "dual_loop_frozen_task"
+
+[workspace]
+source = "../../tasks/RoboDojo/Workspace"
+
+[simulator]
+backend = "robodojo"
+interpreter = ".venv-robodojo"
+api_surface = "RoboDojoLowLevelApi"
+env_task = "cover_blocks"
+observation_mode = "rgbd"
+
+[agent]
+preset = "openrouter"
+model = "deepseek/deepseek-v4.1-flash"
+reasoning_effort = "high"
+timeout_sec = 2400
+isolation = "docker"
+# Build this image locally; record its immutable digest for each experiment.
+image = "embodiedevo-agent:latest"
+network = "none"
+cpus = 4
+memory_mb = 8192
+
+[playground]
+seed = 0
+budget = 100
+submission_timeout_sec = 600
+feedback_fps = 15
+expose_success_feedback = true
+
+[test]
+scenes = 10
+budget = 100
+generation_timeout_sec = 2400
+submission_timeout_sec = 600
+excluded_seed = 0
+
+[artifacts]
+archive_replay = false

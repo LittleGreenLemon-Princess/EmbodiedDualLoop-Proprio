@@ -27,6 +27,13 @@ next scene or modify the frozen base. Report primary and recovered native succes
 interventions, revisions and repair cost separately. This is not strict frozen-code
 evaluation and must not be merged with the original skills-only transfer results.
 
+OpenRouter is an explicit optional provider adaptation, documented in
+`docs/OPENROUTER.zh-CN.md`. Its host API plus offline shell-container path is
+labeled `openrouter-only-dual-loop-adaptation-v1`, not a native Jev reproduction.
+Keep existing provider defaults and supplied helpers unchanged when adding
+provider-specific transport handling. Never retry a robot/session/tool operation
+because a model API response was incomplete.
+
 ## Original reproduction boundaries
 
 This repository contains the RoboDojo reproduction source. Read README.md and
