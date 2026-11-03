@@ -303,6 +303,19 @@ def run(args):
     deadline = session_deadline()
     try:
         for round_index in range(args.max_rounds):
+            # Only the host's session record can close the agent. Native episode
+            # termination alone still permits Playground export and finish work.
+            try:
+                state = json.loads((args.episode / 'session-result.json').read_text(encoding='utf-8'))
+            except FileNotFoundError:
+                pass
+            else:
+                if not isinstance(state, dict) or type(state.get('closed')) is not bool:
+                    raise ValueError('Authoritative session result must contain a boolean closed field')
+                if state['closed'] is True:
+                    log('session_closed', {'role': args.role, 'round': round_index,
+                                           'reason': state.get('reason'), 'valid': state.get('valid')})
+                    return 0
             result = api_request(key, opener, {
                 'model': args.model, 'messages': messages, 'tools': TOOLS,
                 'parallel_tool_calls': False, 'max_tokens': 16384,
