@@ -1,4 +1,4 @@
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 import json
 import tempfile
@@ -10,7 +10,7 @@ from orchestrator.config import config_dict, config_from_dict, load_task
 from orchestrator.dual_loop.policies import AdvancePolicy
 from orchestrator.dual_loop import Decision
 from orchestrator.frozen_program import load_program, validate_development_export
-from orchestrator.frozen_task import drive, knowledge_hashes
+from orchestrator.frozen_task import drive, knowledge_hashes, load_repair, RepairValidationError
 from orchestrator.session import Session
 from scripts.smoke_dual_loop import CpuTask
 
@@ -166,6 +166,105 @@ class FrozenTaskTests(unittest.TestCase):
         self.assertGreater(result['elapsed_seconds'], 0)
         events = [json.loads(x) for x in (ep/'fixed-task/events.jsonl').read_text().splitlines()]
         self.assertEqual(events[-1]['kind'], 'system2_return')
+
+    def test_repair_schema_and_utf8_sources_use_real_task_validation(self):
+        _, w, manifest, _, _ = self.setup_scene()
+        base = load_program(w, 'general_pickup')['brief']
+        proposal = w/'submission/repair.json'
+        source = w/'submission/repair.py'
+        source.write_text(PROGRAM + '\n# 当前场景的局部修复\n', encoding='utf-8')
+        invalid = [([], 'proposal'), ({'diagnosis': 'missing task'}, 'task'),
+                   ({'task': []}, 'task'), ({'task': {}}, 'task.entry'),
+                   ({'task': {'entry': 1}}, 'task.entry'),
+                   ({'task': {'entry': 'submission/repair.py', 'includes': 'skills/a.py'}}, 'task.includes'),
+                   ({'task': {'entry': 'submission/repair.py', 'includes': ['submission/repair.py']}}, 'task.includes'),
+                   ({'task': {'entry': 'submission/repair.py', 'max_seconds': 10**400}}, 'task'),
+                   ({'task': {'entry': '../secret.py'}}, 'task.sources'),
+                   ({'task': {'entry': 'submission/missing.py'}}, 'task.sources')]
+        for raw, field in invalid:
+            with self.subTest(raw=raw):
+                proposal.write_text(json.dumps(raw), encoding='utf-8')
+                with self.assertRaises(RepairValidationError) as raised:
+                    load_repair(w, proposal, base, 2, base_selector=manifest['selector'])
+                self.assertEqual(raised.exception.field, field)
+                self.assertNotIn(str(w), str(raised.exception))
+        proposal.write_text(json.dumps({'task': {'entry': 'submission/repair.py',
+                            'parameters': {'distance': .02, 'step': .01, '说明': '保持状态'}}},
+                                      ensure_ascii=False), encoding='utf-8')
+        repaired, _ = load_repair(w, proposal, base, 2, base_selector=manifest['selector'])
+        self.assertEqual(repaired.parameters['说明'], '保持状态')
+        self.assertIn('当前场景', repaired.sources[-1]['code'])
+        source.write_text('def broken(:\n', encoding='utf-8')
+        with self.assertRaises(RepairValidationError) as raised:
+            load_repair(w, proposal, base, 2, base_selector=manifest['selector'])
+        self.assertEqual(raised.exception.field, 'task')
+
+    def test_omitted_repair_fields_inherit_current_revision_without_default_budget_increase(self):
+        _, w, manifest, _, _ = self.setup_scene()
+        base = load_program(w, 'general_pickup')['brief']
+        helper = w/'skills/helper.py'; helper.write_text('GAIN = 1\n', encoding='utf-8')
+        current = replace(base, parameters={'distance': .03, 'step': .005}, max_decisions=1,
+                          max_action_calls=1, max_seconds=20, max_state_age_seconds=2,
+                          min_confidence=.8, sources=({'path': 'skills/helper.py', 'code': 'GAIN = 1\n'}, *base.sources))
+        (w/'submission/repair.py').write_text(PROGRAM, encoding='utf-8')
+        proposal = w/'submission/repair.json'
+        proposal.write_text(json.dumps({'task': {'entry': 'submission/repair.py'}}), encoding='utf-8')
+        repaired, selector = load_repair(w, proposal, base, 2, current=current,
+                                        base_selector=manifest['selector'])
+        for field in ['parameters', 'max_decisions', 'max_action_calls', 'max_seconds',
+                      'max_state_age_seconds', 'min_confidence']:
+            self.assertEqual(getattr(repaired, field), getattr(current, field))
+        self.assertEqual(repaired.sources[0]['path'].replace('\\', '/'), 'skills/helper.py')
+        self.assertEqual(selector, manifest['selector'])
+        self.assertEqual(repaired.revision, 2)
+
+    def test_repair_cannot_change_selector_or_enlarge_frozen_limits(self):
+        _, w, manifest, _, _ = self.setup_scene()
+        base = load_program(w, 'general_pickup')['brief']
+        (w/'submission/repair.py').write_text(PROGRAM, encoding='utf-8')
+        proposal = w/'submission/repair.json'
+        pinned = {'kind': 'jev_factorized', 'model': 'pinned-model', 'timeout': 4.}
+        for changes in [{'kind': 'jev'}, {'model': 'other-model'}, {'timeout': 8.},
+                        {'observation_profile': 'different'}]:
+            with self.subTest(changes=changes):
+                proposal.write_text(json.dumps({'task': {'entry': 'submission/repair.py'},
+                                               'selector': {**pinned, **changes}}), encoding='utf-8')
+                with self.assertRaisesRegex(RepairValidationError, 'frozen selector'):
+                    load_repair(w, proposal, base, 2, base_selector=pinned)
+        for field, value in [('max_decisions', 3), ('max_action_calls', 3),
+                             ('max_seconds', 61), ('max_state_age_seconds', 11), ('min_confidence', .4)]:
+            with self.subTest(field=field):
+                proposal.write_text(json.dumps({'task': {'entry': 'submission/repair.py', field: value}}), encoding='utf-8')
+                with self.assertRaises(RepairValidationError) as raised:
+                    load_repair(w, proposal, base, 2, base_selector=pinned)
+                self.assertEqual(raised.exception.field, 'task.' + field)
+        proposal.write_text(json.dumps({'task': {'entry': 'submission/repair.py'}}), encoding='utf-8')
+        self.assertEqual(load_repair(w, proposal, base, 2, base_selector=pinned)[1], pinned)
+
+    def test_handoff_template_is_executable_and_invalid_schema_is_logged_without_replay(self):
+        ep, w, _, env, session = self.setup_scene(step=0.)
+        def repair(path, handoff):
+            template = handoff['proposal_template']
+            self.assertEqual(template['task']['max_decisions'], 2)
+            self.assertEqual(template['task']['parameters']['step'], 0.)
+            self.assertEqual(template['task']['entry'], 'skills/task_program.py')
+            proposal = w/handoff['proposal_path']
+            proposal.write_text(json.dumps(template), encoding='utf-8')
+            base = load_program(w, 'general_pickup')
+            parsed, selector = load_repair(w, proposal, base['brief'], 2, base_selector=base['selector'])
+            self.assertEqual(parsed.max_action_calls, 2)
+            self.assertEqual(selector, base['selector'])
+            proposal.write_text('{"diagnosis":"sensitive-proposal-text"}', encoding='utf-8')
+            return proposal
+        result = self.run_controller(ep, w, session, repair)
+        self.assertEqual(result['reason'], 'invalid_repair_proposal')
+        self.assertEqual(result['delegations'], 1)
+        self.assertEqual(env.control_steps, 2)
+        events_text = (ep/'fixed-task/events.jsonl').read_text(encoding='utf-8')
+        error = next(e for e in map(json.loads, events_text.splitlines()) if e['kind'] == 'invalid_repair')
+        self.assertEqual(error['field'], 'task')
+        self.assertIn('requires a task object', error['message'])
+        self.assertNotIn('sensitive-proposal-text', events_text)
 
     def test_system2_cannot_dispatch_finish_or_bypass_zero_action_exec(self):
         ep, w, _, env, s = self.setup_scene()

@@ -121,15 +121,22 @@ class ExecutorLoop:
                 state = {'goal': self.brief.goal, 'current': snapshot['context'],
                          'recent_effects': self.events[-4:]}
                 self.decisions += 1
+                failure_stage = 'prepare_policy_state'
                 try:
                     policy_state = self.state_transform(state) if self.state_transform else state
                     if getattr(self.backend, 'proprioception', None):
                         policy_state = {**policy_state,
                                         'proprioception': snapshot['context']['proprioception']}
+                    failure_stage = 'select'
                     decision = self.policy.select(policy_state, options)
+                    failure_stage = 'validate_decision'
                     decision.validate(options)
                 except Exception as error:
-                    self._record({'kind': 'selector_error', 'error_type': type(error).__name__})
+                    # Fixed metadata only: provider exceptions may contain secrets.
+                    self._record({'kind': 'selector_error', 'error_type': type(error).__name__,
+                                  'selector': type(self.policy).__name__,
+                                  'failure_stage': failure_stage,
+                                  'robot_action_applied': False})
                     return self._finish('needs_system2', 'selector_error')
                 self._record({'kind': 'decision', 'decision': asdict(decision),
                               'latency_seconds': self.clock() - observed_at})

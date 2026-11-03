@@ -18,7 +18,8 @@ from orchestrator.session_runner import prepare_inputs
 
 
 class WorkerLogTests(unittest.TestCase):
-    def exercise(self, *, flat=False, exit_code=1, startup_error=None, cleanup_error=None):
+    def exercise(self, *, flat=False, exit_code=1, startup_error=None, cleanup_error=None,
+                 container='test-agent'):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -35,16 +36,21 @@ class WorkerLogTests(unittest.TestCase):
         with contextlib.ExitStack() as patches:
             for target, options in [
                 ('agent_command', {'side_effect': startup_error} if startup_error else
-                                  {'return_value': ('test-agent', command)}),
+                                  {'return_value': (container, command)}),
                 ('BridgeTask', {'return_value': SimpleNamespace(success=False, control_steps=0)}),
                 ('Session', {'return_value': session}),
                 ('threading.Thread', {}),
-                ('subprocess.run', {'side_effect': cleanup_error}),  # Docker cleanup only.
                 ('codex_token_usage', {'return_value': {}}),
             ]:
                 patches.enter_context(patch(f'integrations.robodojo_policy.worker.{target}', **options))
+            cleanup = patches.enter_context(patch.object(worker.subprocess, 'run', side_effect=cleanup_error))
             worker.run_worker(connection, {'run_dir': str(root), 'task_config': config_dict(cfg),
                               'phase': 'test', 'flat_episode': flat}, {}, 100, 0)
+            if container is None or startup_error:
+                cleanup.assert_not_called()
+            else:
+                cleanup.assert_called_once()
+                self.assertEqual(cleanup.call_args.args[0], ['docker', 'rm', '-f', container])
         runtime = json.loads((run / ('agent/runtime.json' if flat else 'runtime.json')).read_text())
         return run, runtime, connection, session
 
@@ -95,6 +101,19 @@ class WorkerLogTests(unittest.TestCase):
                 evidence = json.loads((run / 'agent/cleanup-error.json').read_text())
                 self.assertEqual(evidence['container'], 'test-agent')
                 self.assertIn('TimeoutExpired', evidence['error'])
+
+    def test_host_agent_without_container_finishes_without_docker_cleanup(self):
+        # Fixed-task and local agent_command branches both return (None, argv).
+        # Exercise the real worker's exit path with that contract and a real child.
+        for flat in (False, True):
+            with self.subTest(flat=flat):
+                run, runtime, connection, session = self.exercise(
+                    flat=flat, exit_code=0, container=None)
+                self.assertEqual(runtime['status'], 'finished')
+                self.assertTrue(session.valid)
+                self.assertIsNone(runtime['container'])
+                self.assertEqual(connection.send.call_args.args[0]['kind'], 'finished')
+                self.assertFalse((run / 'agent/cleanup-error.json').exists())
 
 
 if __name__ == '__main__':

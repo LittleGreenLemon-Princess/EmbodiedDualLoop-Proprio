@@ -100,6 +100,25 @@ class DualLoopTests(unittest.TestCase):
         self.assertFalse(report['subtask_verified'])
         self.assertEqual(len(env.actions), 0)
 
+    def test_missing_selector_credentials_is_identifiable_without_leaking_secrets(self):
+        with patch.dict('os.environ', {}, clear=True), patch('urllib.request.OpenerDirector.open') as http:
+            report, env, loop = self.run_loop(policy=JevPolicy())
+        error = next(e for e in loop.events if e['kind'] == 'selector_error')
+        self.assertEqual(error['error_type'], 'SelectorConfigurationError')
+        self.assertEqual(error['selector'], 'JevPolicy')
+        self.assertEqual(error['failure_stage'], 'select')
+        self.assertFalse(error['robot_action_applied'])
+        self.assertNotIn('message', error)
+        self.assertEqual(report['reason'], 'selector_error')
+        self.assertEqual(len(env.actions), 0)
+        http.assert_not_called()
+
+    def test_invalid_decision_is_distinguished_from_provider_failure(self):
+        _, env, loop = self.run_loop(policy=Policy(Decision('invented')))
+        error = next(e for e in loop.events if e['kind'] == 'selector_error')
+        self.assertEqual(error['failure_stage'], 'validate_decision')
+        self.assertEqual(len(env.actions), 0)
+
     def test_slow_decision_is_discarded_before_action(self):
         now = [0.]
 

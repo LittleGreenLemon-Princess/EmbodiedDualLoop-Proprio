@@ -11,6 +11,10 @@ import time
 from .model import Decision
 
 
+class SelectorConfigurationError(RuntimeError):
+    """Host selector configuration is missing; no model decision was made."""
+
+
 class AdvancePolicy:
     """A deliberately simple control-flow baseline, not a learned controller."""
 
@@ -42,7 +46,7 @@ class JevPolicy:
     def _request(self, payload):
         key = os.environ.get('TYPESAFE_API_KEY')
         if not key:
-            raise RuntimeError('TYPESAFE_API_KEY is required on the host')
+            raise SelectorConfigurationError('TYPESAFE_API_KEY is required on the host')
         request = urllib.request.Request(
             self.endpoint, data=json.dumps(payload, allow_nan=False).encode(),
             headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'},

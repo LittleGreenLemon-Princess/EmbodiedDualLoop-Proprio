@@ -15,9 +15,16 @@ def stage_workspace(inputs, *, benchmark=False, frozen_task=False, native_task='
     skills.mkdir(exist_ok=True)
     for path in ['integrations/ee_pose_servo.py', 'integrations/bowl_rim_grasp.py',
                  'integrations/rim_pick_loop.py', 'integrations/skills/grasp_feedback.py', 'integrations/skills/thin_rim_grasp/stepwise_pick.py',
-                 'integrations/skills/pose_correction.py']:
+                 'integrations/skills/pose_correction.py',
+                 'integrations/skills/visual_motion_guard.py']:
         shutil.copyfile(root / path, skills / Path(path).name)
     (skills / 'SUPPLIED.md').write_text(
         'These helpers are supplied task knowledge, not learned skills. '
         'System 2 must create its own task wrappers, parameters and plan. '
-        'No earlier experiment programs or results are supplied.\n')
+        'No earlier experiment programs or results are supplied.\n'
+        'visual_motion_guard.py is an action-free supplied diagnostic, not a learned '
+        'skill or a motion/success verifier. Include it explicitly before your own '
+        'task program. It requires synchronized capture times, stationary metric '
+        'frames, same-arm rigid-tip identity and calibrated uncertainty/rotation '
+        'bounds; missing evidence returns unknown. Request System 2 review for '
+        'unknown or suspected_static_visual_tip before further visual correction.\n')

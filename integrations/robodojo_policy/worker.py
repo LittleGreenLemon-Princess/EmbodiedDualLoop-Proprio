@@ -155,8 +155,9 @@ def run_worker(connection, specification, observation, step_limit, episode):
                                     runtime.update(status="agent_reconnecting", agent_recoveries=len(recoveries))
                                     write_json(runtime_path, runtime)
                                     # Only the CLI restarts. The Session and native environment stay alive.
-                                    subprocess.run(["docker", "rm", "-f", container], stdin=subprocess.DEVNULL,
-                                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+                                    if container:
+                                        subprocess.run(["docker", "rm", "-f", container], stdin=subprocess.DEVNULL,
+                                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
                                     recovery_due = time.monotonic() + delay
                                     continue
                                 if reason:
@@ -191,17 +192,18 @@ def run_worker(connection, specification, observation, step_limit, episode):
                                finished_at=time.time())
                 write_json(runtime_path, runtime)
                 stop_mirror.set()
-                try:
-                    subprocess.run(["docker", "rm", "-f", container], stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   timeout=30, check=True)
-                except (subprocess.SubprocessError, OSError) as exc:
-                    # Cleanup is outside the completed scientific episode. The
-                    # campaign retains ownership metadata for later removal.
-                    write_json(run / "agent/cleanup-error.json", {
-                        "at": time.time(), "container": container,
-                        "error": f"{type(exc).__name__}: {exc}",
-                    })
+                if container:
+                    try:
+                        subprocess.run(["docker", "rm", "-f", container], stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       timeout=30, check=True)
+                    except (subprocess.SubprocessError, OSError) as exc:
+                        # Cleanup is outside the completed scientific episode. The
+                        # campaign retains ownership metadata for later removal.
+                        write_json(run / "agent/cleanup-error.json", {
+                            "at": time.time(), "container": container,
+                            "error": f"{type(exc).__name__}: {exc}",
+                        })
                 container = None
                 stop_process(process)
         connection.send({"kind": "finished", "success": env.success})
