@@ -1,4 +1,4 @@
-"""Public measured state and action effects; never infer grasp success.
+"""Public measured pose/joints and gripper control settings; no grasp inference.
 
 Inspired by ASPIRE's observation/feedback separation. No ASPIRE code is copied.
 """
@@ -54,7 +54,10 @@ class Proprioception:
                 'timestamp_meaning': 'host acquisition; sensor capture age is unknown',
                 'source': 'public_observation.state',
                 'units': {'translation': 'm', 'joint_position': 'rad',
-                          'quaternion': 'wxyz', 'gripper': 'normalized: 0=closed, 1=open'},
+                          'quaternion': 'wxyz',
+                          'gripper': 'normalized last controller target: 0=closed, 1=open; '
+                                     'gripper_opening_normalized is a legacy alias, not an '
+                                     'independently measured jaw opening'},
                 'arms': arms}
 
     def record_action(self, before, after):
@@ -78,7 +81,10 @@ class Proprioception:
             effects[arm] = effect
         self.action_samples += 1
         self.last_action = {'before': before, 'after': after, 'effects': effects,
-                            'interpretation': 'Measured change only; no contact or grasp proof.'}
+                            'interpretation': 'EE pose and arm-joint changes are measured. '
+                                              'Gripper deltas are changes in reported control '
+                                              'targets, not measured jaw motion; independent '
+                                              'jaw opening is unavailable. No contact or grasp proof.'}
 
     def snapshot(self):
         return {**self.read(), 'action_samples': self.action_samples,

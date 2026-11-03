@@ -39,26 +39,28 @@ next answer. These are code capabilities, not motor hints from System 2.
 Each context/options/init call has ZERO actions. Each tick has at most ONE
 native step(action). OpenRouter System 1 owns repeated observation, parameter selection and
 execution inside the whole task. You own workflow, code, sensing and debugging.
-Keep the other arm/gripper at its measured state. Do not schedule each primitive
+Keep the other arm at its measured pose and preserve the other gripper's reported
+control setting. Do not schedule each primitive
 from System 2, coach the next signed direction/step, or restart one-action tasks
 to avoid low confidence. Repeated close/settle/hold belongs in the same loop.
 
 In this fixed-program profile the host adds context.measured_grippers from
-current public observations: both measured openings, per-action opening delta,
-closing/opening/stationary motion and consecutive stationary action counts.
-RoboDojo ARX uses 1=open, 0=closed. These are measurements, not commands.
-Include commanded gripper state and measured closure progress in your own
-stage feedback too. A stationary EE during jaw closure is expected: do not
-diagnose a stall from EE motion alone. Bound close/settle actions and use
-measured jaw convergence together with physical object evidence; jaw stoppage
-or a partially closed gripper alone never establishes contact or a grasp.
+current public observations. The legacy names measured_opening and
+gripper_opening_normalized contain normalized last controller targets, not
+independently measured jaw openings. RoboDojo ARX uses 1=open target, 0=closed
+target; the controller may rate-limit targets. Deltas, closing/opening/stationary
+labels and stationary action counts describe control-setting changes, not jaw
+motion or convergence. Independent jaw opening is unavailable in this interface.
+Include commanded state and public visual object evidence in stage feedback.
+Bound close/settle actions; neither a stationary EE nor an unchanged or partially
+closed control setting establishes a stall, contact, or a grasp.
 When repairing after closure, inspect current grasp/occlusion evidence and
 resume the justified stage instead of blindly reopening or re-detecting a new
-target. Missing measurements mean unknown, not zero or successful closure.
+target. Missing control-state feedback means unknown, not successful closure.
 
 This run explicitly enables `proprioception-v1`. The host may add measured
-end-effector pose, arm-joint positions, normalized gripper opening, validity
-flags, and measured before/after action deltas from the existing public
+end-effector pose and arm-joint positions, plus normalized gripper control settings,
+validity flags, and before/after action deltas from the existing public
 observation state. Use only present, valid fields and retain unknown values as
 unknown. This interface does not expose force, torque, contact force, or tactile
 measurements; do not infer or claim those signals.

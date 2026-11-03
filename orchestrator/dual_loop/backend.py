@@ -59,7 +59,7 @@ class ProgramBackend:
             if any(not isinstance(key, str) or not key for key in value['options']):
                 raise ValueError('Action IDs must be nonempty strings')
             if self.grippers:
-                # Measured public state, independent of generated skill context.
+                # Public control settings, independent of generated skill context.
                 measured = self.grippers.snapshot()
                 value['context']['measured_grippers'] = measured
                 if isinstance(value.get('feedback'), dict):

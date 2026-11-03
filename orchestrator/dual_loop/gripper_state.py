@@ -1,4 +1,4 @@
-"""Measured public gripper feedback; no contact or grasp-success inference."""
+"""Public gripper control-setting feedback; no independent jaw measurement."""
 import numpy as np
 
 
@@ -39,12 +39,15 @@ class GripperFeedback:
         current = self.read()
         return {'schema': 'measured-grippers-v1',
                 'source': 'public_observation.state.*_ee_joint_state[0]',
-                'convention': 'RoboDojo ARX: 1=open, 0=closed; negative delta=closing. '
-                              'Values are measured opening, not motor commands or force.',
-                'interpretation': 'During commanded closure, jaw motion is progress even '
-                                  'when EE pose is stationary. Stationary jaws may indicate '
-                                  'holding, contact, a limit or failure; alone they do not '
-                                  'establish contact, a grasp, or task success.',
+                'convention': 'RoboDojo ARX: 1=open target, 0=closed target. Values are '
+                              'normalized last controller targets, not independently '
+                              'measured jaw openings or force; targets may be rate-limited.',
+                'interpretation': 'Legacy measured_opening and initial_opening keys contain '
+                                  'reported control settings. Delta, closing/opening/stationary '
+                                  'labels and stationary_action_count describe changes to '
+                                  'those settings, not jaw motion or convergence. Independent '
+                                  'jaw opening is unavailable; these fields do not establish '
+                                  'contact, a grasp, or task success. Use public visual evidence.',
                 'action_samples': self.actions,
                 'arms': {arm: {'measured_opening': current[arm],
                               'initial_opening': self.initial[arm],

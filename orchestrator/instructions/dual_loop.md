@@ -48,7 +48,8 @@ competing actions based on the desired answer after seeing low confidence.
 1. Detect a shallow bowl from current public RGB-D. Supplied bowl_from_head uses
    the head camera and a world ROI, not private object poses. Fit and record its
    center/rim. Use a clear hover waypoint with the finger pad at least 12 cm above
-   the rim; preserve the other arm and measured gripper state.
+   the rim; preserve the other arm's measured pose and the gripper's reported
+   control setting, which is not an independently measured jaw opening.
 2. Write a parameterized pose wrapper around skills/pose_correction.py. Prefer
    keeping the currently measured attitude during the initial clear hover; compute
    pad compensation for that attitude. Do not rotate into the later grasp attitude

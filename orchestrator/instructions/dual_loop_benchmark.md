@@ -55,7 +55,8 @@ Submit JSON with task_id, revision, goal, entry, includes, parameters,
 max_decisions, max_action_calls, max_seconds, max_state_age_seconds and
 min_confidence. Includes and entry must be workspace paths. Read supplied code
 before using it. Code receives np and the documented primitives, no imports,
-filesystem or network. Keep the unused arm/gripper at its measured state.
+filesystem or network. Keep the unused arm at its measured pose and preserve
+the gripper's reported control setting, not an independently measured jaw opening.
 Persist state across ticks; return context.status='needs_verification' when the
 stage needs external physical review, or a non-active status with a reason when
 it cannot continue. A model saying done does not certify manipulation success.

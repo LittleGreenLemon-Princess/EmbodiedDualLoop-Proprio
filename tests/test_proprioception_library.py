@@ -21,6 +21,8 @@ class ProprioceptionTests(unittest.TestCase):
         env = CpuTask()
         body = Proprioception(env)
         before = body.read()
+        self.assertIn('normalized last controller target', before['units']['gripper'])
+        self.assertIn('not an independently measured jaw opening', before['units']['gripper'])
         self.assertIsNone(before['arms']['left']['joint_position_rad'])
         env.state['left_ee_pose'][3:] *= -1
         env.observe(env._observation_value())
@@ -50,10 +52,12 @@ class ProprioceptionTests(unittest.TestCase):
             report = loop.run()
             self.assertEqual(report['experiment_condition'], 'dual-loop-proprio-v1')
             self.assertIn('proprioception', seen[0])
+            self.assertIn('normalized last controller target', seen[0]['proprioception']['units']['gripper'])
             self.assertEqual(seen[1]['proprioception']['action_samples'], 1)
             evidence = report['latest']['context']['proprioception']
             self.assertEqual(evidence['action_samples'], 2)
             self.assertEqual(evidence['last_action']['effects']['right']['translation_delta_m'], [0, 0, 0])
+            self.assertIn('not measured jaw motion', evidence['last_action']['interpretation'])
             self.assertFalse(report['subtask_verified'])
             records = [json.loads(s) for s in (Path(folder) / 'run/events.jsonl').read_text().splitlines()]
             actions = [e for e in records if e['kind'] == 'action']

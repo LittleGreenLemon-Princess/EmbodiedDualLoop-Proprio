@@ -19,7 +19,7 @@ def skill_tick(s, option):
 '''
 
 class GripperStateTests(unittest.TestCase):
-    def test_backend_injects_actual_closure_and_keeps_refresh_action_free(self):
+    def test_backend_injects_control_changes_and_keeps_refresh_action_free(self):
         env = CpuTask()
         brief = TaskBrief('close', 'Close and verify separately',
                           ({'path': 'close.py', 'code': PROGRAM},))
@@ -37,6 +37,11 @@ class GripperStateTests(unittest.TestCase):
         self.assertAlmostEqual(measured['arms']['left']['last_action']['delta'], -.2)
         self.assertEqual(measured['arms']['left']['last_action']['motion'], 'closing')
         self.assertEqual(measured['arms']['right']['stationary_action_count'], 2)
+        self.assertIn('normalized last controller targets', measured['convention'])
+        self.assertIn('not independently measured jaw openings', measured['convention'])
+        self.assertIn('not jaw motion or convergence', measured['interpretation'])
+        self.assertEqual(set(measured), {'schema', 'source', 'convention', 'interpretation',
+                                        'action_samples', 'arms'})
         np.testing.assert_array_equal(env.state['left_ee_pose'], pose)
         refreshed, _, calls = backend.refresh()
         self.assertEqual(calls, 0)
