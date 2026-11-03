@@ -171,6 +171,7 @@ SAFE_BUILTINS = {
         "ValueError",
         "zip",
         "ZeroDivisionError",
+        "OverflowError",
         "TypeError",
         "KeyError",
         "IndexError",

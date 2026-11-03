@@ -119,6 +119,19 @@ class VisualMotionGuardTests(unittest.TestCase):
             namespace = {'__builtins__': dict(SAFE_BUILTINS)}
             exec(compile(code, '<guard-cpu-test>', 'exec'), namespace)
             self.assertEqual(namespace['result']['status'], 'suspected_static_visual_tip')
+            guard = namespace['visual_motion_consistency']
+            for sample, reason in [
+                (dict(self.after, ee_capture_time_s=None), 'missing_capture_time'),
+                (dict(self.after, tip_position_m=[10**400, 0, 0]), 'invalid_position_or_scale'),
+            ]:
+                with self.subTest(reason=reason):
+                    result = guard(self.before, sample, **self.limits)
+                    self.assertEqual(result['status'], 'unknown')
+                    self.assertEqual(result['reason'], reason)
+                    self.assertFalse(result['task_success_verified'])
+            for invalid in (None, 10**400):
+                with self.subTest(invalid_limit=invalid), self.assertRaises(ValueError):
+                    guard(self.before, self.after, **dict(self.limits, max_age_s=invalid))
             self.assertIn('visual_motion_guard.py', (Path(folder)/'skills/SUPPLIED.md').read_text(encoding='utf-8'))
 
 
